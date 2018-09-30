@@ -1,3 +1,9 @@
+# eclipse IDE project files
+.settings
+.project
+.pydevproject
+.svn
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -8,6 +14,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -20,10 +27,11 @@ parts/
 sdist/
 var/
 wheels/
+ref_utils.egg-info/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -43,9 +51,9 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
-*.cover
+*,cover
 .hypothesis/
-.pytest_cache/
+*.csv
 
 # Translations
 *.mo
@@ -54,7 +62,6 @@ coverage.xml
 # Django stuff:
 *.log
 local_settings.py
-db.sqlite3
 
 # Flask stuff:
 instance/
@@ -78,27 +85,30 @@ target/
 # celery beat schedule file
 celerybeat-schedule
 
-# SageMath parsed files
-*.sage.py
-
-# Environments
+# dotenv
 .env
-.venv
-env/
+
+# virtualenv
+.venv/
 venv/
 ENV/
-env.bak/
-venv.bak/
 
 # Spyder project settings
 .spyderproject
-.spyproject
 
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# pycharm
+.idea/
 
-# mypy
-.mypy_cache/
+# log files
+*.log.*
+
+# other output files
+*.xls
+*.xlsx
+*.rar
+
+# other persons folder
+src/data_analysis/wang_bo_chuan_transfer_pys/*
