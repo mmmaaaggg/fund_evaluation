@@ -131,12 +131,9 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                     # 净值类产品
                     # nav = get_nav(product_name)
                     if base_prod_name is not None and base_prod_name != "":
+                        # 子基金分批次买入，需要分别找到对应产品的净值，然后计算总市值
                         date_nav_list = fund_nav_dic[base_prod_name]
-                        date_last = data_df_new.iloc[last_row - 1, 0].date()
-                        idx = get_first_idx(date_nav_list, lambda x: x[0] == date_last)
-                        if idx is None:
-                            raise ValueError('%s %s[%s] %s 净值未找到' % (
-                                sheet_name, sub_product_name, base_prod_name, date_last))
+                        _, (date_latest_new, nav) = max_id_val(date_nav_list, lambda x: x[0])
                     elif sub_product_name in fund_nav_dic:
                         date_nav_list = fund_nav_dic[sub_product_name]
                         _, (date_latest_new, nav) = max_id_val(date_nav_list, lambda x: x[0])
@@ -233,9 +230,9 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
         data_df_new.to_excel(file_path_df)
         # 保存返回信息
         ret_data_dic['nav'] = nav
-        nav_last = data_df_new['净值（费后）'].iloc[last_row - 1]
-        ret_data_dic['nav_last'] = nav_last
-        ret_data_dic['nav_chg'] = nav - nav_last
+        nav_last_4_parent_product = data_df_new['净值（费后）'].iloc[last_row - 1]
+        ret_data_dic['nav_last'] = nav_last_4_parent_product
+        ret_data_dic['nav_chg'] = nav - nav_last_4_parent_product
         ret_data_dic['rr'] = nav ** (365 / (nav_date - setup_date).days) if (nav_date - setup_date).days > 10 else 0.0
         ret_data_list.append(ret_data_dic)
 
