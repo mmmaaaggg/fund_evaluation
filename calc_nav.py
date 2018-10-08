@@ -43,6 +43,7 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
 
     workbook = xlrd.open_workbook(file_path)
     sheet_names = workbook.sheet_names()
+    # 各个sheet分别处理
     for sheet_num, sheet_name in enumerate(sheet_names, start=0):
         sheet = workbook.sheet_by_name(sheet_name)
         # 判断第一个cell是不是“基金名称”不是则跳过
@@ -84,6 +85,8 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                     'rate': float(sheet.cell_value(row_num, 3)) if sheet.cell_value(row_num, 3) != '' else 0,
                     'base_date': xlrd.xldate_as_datetime(sheet.cell_value(row_num, 5), 0).date(),
                     'load_cost': float(sheet.cell_value(row_num, 7)) if sheet.cell_value(row_num, 7) != '' else 0,
+                    # 部分子产品存在分笔买入的情况，因此要根据产品真实净值计算当前子产品净值
+                    'base_prod_name': sheet.cell_value(row_num, 9) if sheet.cell_value(row_num, 8) == '子基金' else None,
                 }
             else:
                 logger.error('有未识别的行: %d 该行第一列值为：%s', row_num, type_name)
@@ -112,8 +115,8 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                 sub_product_info_dic = loan_dic[sub_product_name]
                 rate = sub_product_info_dic['rate']
                 if rate > 0:
-                    nav, volume = 1, 0
                     # 借款：计算利息收入加上本金即为市值
+                    nav, volume = 1, 0
                     # 市值
                     value = sub_product_info_dic['load_cost'] * (
                             1 +
@@ -325,15 +328,15 @@ def save_nav_files(data_list, save_path):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s: %(levelname)s [%(name)s] %(message)s')
     # fund_nav_dic, cash_df = None, None
-    folder_path = os.path.abspath(os.path.curdir)
-    folder_path_evaluation_table = os.path.join(folder_path, 'evaluation_table')
-    folder_path_only_nav = os.path.join(folder_path, 'only_nav')
-    folder_path_cash = os.path.join(folder_path, 'cash')
+    files_folder_path = os.path.join(os.path.abspath(os.path.curdir), 'files')
+    folder_path_evaluation_table = os.path.join(files_folder_path, 'evaluation_table')
+    folder_path_only_nav = os.path.join(files_folder_path, 'only_nav')
+    folder_path_cash = os.path.join(files_folder_path, 'cash')
     folder_path_dict = {'folder_path_evaluation_table': folder_path_evaluation_table,
                         'folder_path_only_nav': folder_path_only_nav,
                         'folder_path_cash': folder_path_cash}
     fund_nav_dic, cash_df = read_nav_files(folder_path_dict)
-    file_path = r'd:\WSPych\RefUtils\src\nav_tools\净值计算模板 - 模测版.xls'
+    file_path = os.path.join(files_folder_path, '净值计算模板+-+模测版 reset by doudou.xls')
     ret_data_list = update_nav_file(file_path, fund_nav_dic, cash_df)
-    save_path = os.path.join(folder_path, 'nav_summary.xls')
+    save_path = os.path.join(files_folder_path, 'nav_summary.xls')
     save_nav_files(ret_data_list, save_path)
