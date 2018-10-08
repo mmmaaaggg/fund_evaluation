@@ -13,7 +13,7 @@ import xlwt
 import re
 import os
 import pandas as pd
-from fh_utils import date_2_str, str_2_date, try_2_date, max_id_val
+from fh_utils import date_2_str, str_2_date, try_2_date, max_id_val, get_first_idx
 from datetime import date, datetime
 import logging
 from read_nav_files import read_nav_files
@@ -60,7 +60,7 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
             'sub_product_list': [],
         }
         # 读取各种费用及借贷利息，子产品信息
-        fee_dic, loan_dic = {}, {}
+        fee_dic, sub_product_or_loan_info_dic = {}, {}
         row_num = 3
         cell_content = sheet.cell_value(row_num, 0)
         while cell_content != '日期' and cell_content != '':
@@ -80,13 +80,13 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
 
             elif type_name == '子产品':
                 # 借款，子基金
-                loan_dic[sheet.cell_value(row_num, 1)] = {
+                sub_product_or_loan_info_dic[sheet.cell_value(row_num, 1)] = {
                     'name': sheet.cell_value(row_num, 1),
                     'rate': float(sheet.cell_value(row_num, 3)) if sheet.cell_value(row_num, 3) != '' else 0,
                     'base_date': xlrd.xldate_as_datetime(sheet.cell_value(row_num, 5), 0).date(),
                     'load_cost': float(sheet.cell_value(row_num, 7)) if sheet.cell_value(row_num, 7) != '' else 0,
                     # 部分子产品存在分笔买入的情况，因此要根据产品真实净值计算当前子产品净值
-                    'base_prod_name': sheet.cell_value(row_num, 9) if sheet.cell_value(row_num, 8) == '子基金' else None,
+                    'base_prod_name': sheet.cell_value(row_num, 9) if sheet.cell_value(row_num, 8) == '对应产品名称' else None,
                 }
             else:
                 logger.error('有未识别的行: %d 该行第一列值为：%s', row_num, type_name)
@@ -111,8 +111,9 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
         tot_val = 0
         for prod_num, sub_product_name in enumerate(sub_product_name_list):
             col_num = 1 + prod_num * 3
-            if sub_product_name in loan_dic:
-                sub_product_info_dic = loan_dic[sub_product_name]
+            if sub_product_name in sub_product_or_loan_info_dic:
+                sub_product_info_dic = sub_product_or_loan_info_dic[sub_product_name]
+                base_prod_name = sub_product_info_dic['base_prod_name']
                 rate = sub_product_info_dic['rate']
                 if rate > 0:
                     # 借款：计算利息收入加上本金即为市值
@@ -129,9 +130,16 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                 else:
                     # 净值类产品
                     # nav = get_nav(product_name)
-                    if sub_product_name in fund_nav_dic:
+                    if base_prod_name is not None and base_prod_name != "":
+                        date_nav_list = fund_nav_dic[base_prod_name]
+                        date_last = data_df_new.iloc[last_row - 1, 0].date()
+                        idx = get_first_idx(date_nav_list, lambda x: x[0] == date_last)
+                        if idx is None:
+                            raise ValueError('%s %s[%s] %s 净值未找到' % (
+                                sheet_name, sub_product_name, base_prod_name, date_last))
+                    elif sub_product_name in fund_nav_dic:
                         date_nav_list = fund_nav_dic[sub_product_name]
-                        _, (date_latest, nav) = max_id_val(date_nav_list, lambda x: x[0])
+                        _, (date_latest_new, nav) = max_id_val(date_nav_list, lambda x: x[0])
                     else:
                         logger.warning("%s 净值未查到，默认净值为 1", sub_product_name)
                         nav = 1
@@ -171,10 +179,10 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
         # 更新现金
         if cash_df is not None and fund_name in cash_df.index:
             cash = cash_df['现金'][fund_name]
-            date_latest = str_2_date(cash_df['日期'][fund_name])
-            if date_latest != nav_date:
+            date_latest_new = str_2_date(cash_df['日期'][fund_name])
+            if date_latest_new != nav_date:
                 logger.warning('当前计算净值日期%s 与 %s 产品账户现金统计日期 %s 不符，可能出现计算偏差',
-                               nav_date, fund_name, date_latest)
+                               nav_date, fund_name, date_latest_new)
             data_df_new['银行现金'].iloc[last_row] = cash
             tot_val += cash
         else:
