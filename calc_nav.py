@@ -21,13 +21,14 @@ from read_nav_files import read_nav_files
 logger = logging.getLogger()
 
 
-def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
+def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today(), ignore_sheet_set=None):
     """
     更新净值文件中的净值
     :param file_path:
     :param fund_nav_dic:
     :param cash_df:
     :param nav_date:
+    :param ignore_sheet_set:
     :return:
     """
     # nav_date 日期转换
@@ -47,8 +48,16 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
     for sheet_num, sheet_name in enumerate(sheet_names, start=0):
         sheet = workbook.sheet_by_name(sheet_name)
         # 判断第一个cell是不是“基金名称”不是则跳过
-        if sheet.cell_value(0, 0) != '基金名称':
+        try:
+            if sheet.cell_value(0, 0) != '基金名称':
+                continue
+        except IndexError:
+            logging.warning('sheet [%s] 无效，跳过', sheet_name)
             continue
+        if ignore_sheet_set is not None and sheet_name in ignore_sheet_set:
+            logger.warning("[%s] 跳过")
+            continue
+        logger.info('处理sheet：[%s]', sheet_name)
         # 取得名称，日期，份额数据
         fund_name = sheet.cell_value(0, 1)
         setup_date = xlrd.xldate_as_datetime(sheet.cell_value(1, 1), 0).date()
@@ -68,25 +77,40 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
             if type_name in ('费用', '费用（按子产品份额）'):
                 # 费用
                 name = sheet.cell_value(row_num, 1)
+                logger.debug('[%s] -> %d:%s', sheet_name, row_num, name)
+                try:
+                    base_date = xlrd.xldate_as_datetime(sheet.cell_value(row_num, 5), 0).date()
+                except:
+                    base_date = None
+                    logger.warning('[%s] -> %d:%s base_date 字段转换失败 %s 无法转换成日期',
+                                   sheet_name, row_num, name, str(sheet.cell_value(row_num, 5)))
                 fee_dic[name] = {
-                    'name': sheet.cell_value(row_num, 1),
+                    'name': name,
                     'rate': sheet.cell_value(row_num, 3),
-                    'base_date': xlrd.xldate_as_datetime(sheet.cell_value(row_num, 5), 0).date(),
+                    'base_date': base_date,
                 }
                 end_date = sheet.cell_value(row_num, 7)
                 if end_date is not None and end_date != '':
                     # 有些管理费，分段计费
-                    fee_dic[name]['end_date'] = xlrd.xldate_as_datetime(end_date, 0).date()
+                    try:
+                        fee_dic[name]['end_date'] = xlrd.xldate_as_datetime(end_date, 0).date()
+                    except:
+                        logger.warning('[%s] -> %d:%s end_date 字段转换失败 %s 无法转换成日期',
+                                       sheet_name, row_num, name, str(end_date))
 
             elif type_name == '子产品':
                 # 借款，子基金
-                sub_product_or_loan_info_dic[sheet.cell_value(row_num, 1)] = {
-                    'name': sheet.cell_value(row_num, 1),
+                name = sheet.cell_value(row_num, 1)
+                logger.debug('[%s] -> %d:%s', sheet_name, row_num, name)
+                sub_product_or_loan_info_dic[name] = {
+                    'name': name,
                     'rate': float(sheet.cell_value(row_num, 3)) if sheet.cell_value(row_num, 3) != '' else 0,
-                    'base_date': xlrd.xldate_as_datetime(sheet.cell_value(row_num, 5), 0).date(),
+                    'base_date': xlrd.xldate_as_datetime(sheet.cell_value(row_num, 5), 0).date() if sheet.cell_value(
+                        row_num, 5) != '' else None,
                     'load_cost': float(sheet.cell_value(row_num, 7)) if sheet.cell_value(row_num, 7) != '' else 0,
                     # 部分子产品存在分笔买入的情况，因此要根据产品真实净值计算当前子产品净值
-                    'base_prod_name': sheet.cell_value(row_num, 9) if sheet.cell_value(row_num, 8) == '对应产品名称' else None,
+                    'base_prod_name': sheet.cell_value(row_num, 9) if sheet.cell_value(row_num,
+                                                                                       8) == '对应产品名称' else None,
                 }
             else:
                 logger.error('有未识别的行: %d 该行第一列值为：%s', row_num, type_name)
@@ -130,7 +154,7 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                 else:
                     # 净值类产品
                     # nav = get_nav(product_name)
-                    if base_prod_name is not None and base_prod_name != "":
+                    if base_prod_name is not None and base_prod_name != "" and base_prod_name in fund_nav_dic:
                         # 子基金分批次买入，需要分别找到对应产品的净值，然后计算总市值
                         date_nav_list = fund_nav_dic[base_prod_name]
                         _, (date_latest_new, nav) = max_id_val(date_nav_list, lambda x: x[0])
@@ -138,7 +162,9 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                         date_nav_list = fund_nav_dic[sub_product_name]
                         _, (date_latest_new, nav) = max_id_val(date_nav_list, lambda x: x[0])
                     else:
-                        logger.warning("%s 净值未查到，默认净值为 1", sub_product_name)
+                        logger.warning("[%s] %s 净值未查到，默认净值为 1", sheet_name,
+                                       base_prod_name if base_prod_name is not None and base_prod_name != "" else
+                                       sub_product_name)
                         nav = 1
 
                     data_df_new.iloc[last_row, col_num] = nav
@@ -150,14 +176,14 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
                     data_df_new.iloc[last_row, col_num + 2] = value
                     tot_val += value
 
-                logger.debug('%s -> %s 净值、份额、市值：%.3f%%, %f, %f',
-                             fund_name, sub_product_name, nav * 100, volume, value)
+                logger.debug('[%s] -> %s [%d] 净值、份额、市值：%.3f%%, %f, %f',
+                             sheet_name, sub_product_name, col_num, nav * 100, volume, value)
             else:
                 nav = data_df_new.iloc[last_row - 1, col_num]
                 volume = data_df_new.iloc[last_row - 1, col_num + 1]
                 value = data_df_new.iloc[last_row - 1, col_num + 2]
-                logger.error('子产品 %s 没有想过的基本信息，沿用上一计算日净值、份额、市值：',
-                             sub_product_name, (nav, volume, value))
+                logger.error('[%s] -> %s 没有相关的基本信息，沿用上一计算日净值、份额、市值：%s',
+                             sheet_name, sub_product_name, (nav, volume, value))
                 data_df_new.iloc[last_row, col_num] = nav
                 data_df_new.iloc[last_row, col_num + 1] = volume
                 data_df_new.iloc[last_row, col_num + 2] = value
@@ -178,12 +204,12 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
             cash = cash_df['现金'][fund_name]
             date_latest_new = str_2_date(cash_df['日期'][fund_name])
             if date_latest_new != nav_date:
-                logger.warning('当前计算净值日期%s 与 %s 产品账户现金统计日期 %s 不符，可能出现计算偏差',
-                               nav_date, fund_name, date_latest_new)
+                logger.warning('[%s] 当前计算净值日期%s 与 %s 产品账户现金统计日期 %s 不符，可能出现计算偏差',
+                               sheet_name, nav_date, fund_name, date_latest_new)
             data_df_new['银行现金'].iloc[last_row] = cash
             tot_val += cash
         else:
-            logger.warning('没有找到 %s 现金余额， 使用上一次的数值', fund_name)
+            logger.warning('[%s] %s 没有找到现金余额， 使用上一次的数值', sheet_name, fund_name)
             cash = data_df_new['银行现金'].iloc[last_row - 1]
             data_df_new['银行现金'].iloc[last_row] = cash
             tot_val += cash
@@ -192,10 +218,10 @@ def update_nav_file(file_path, fund_nav_dic, cash_df, nav_date=date.today()):
         tot_fee = 0
         for key, info_dic in fee_dic.items():
             end_date = info_dic.setdefault('end_date', nav_date)
-            manage_fee = - (end_date - info_dic['base_date']).days / 365 * fund_volume * info_dic['rate']
             if key not in data_df_new:
-                logger.warning('%s %s 不在费用列表中 %s', fund_name, key, info_dic)
+                logger.warning('[%s] %s -> %s 不在费用列表中 %s', sheet_name, fund_name, key, info_dic)
                 continue
+            manage_fee = - (end_date - info_dic['base_date']).days / 365 * fund_volume * info_dic['rate']
             data_df_new[key].iloc[last_row] = manage_fee
             tot_fee += manage_fee
 
@@ -331,8 +357,10 @@ def save_nav_files(data_list, save_path):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s: %(levelname)s [%(name)s] %(message)s')
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s %(name)s|%(module)s.%(funcName)s:%(lineno)d %(levelname)s %(message)s')
     # fund_nav_dic, cash_df = None, None
+    ignore_sheet_set = {}
     files_folder_path = os.path.join(os.path.abspath(os.path.curdir), 'files')
     folder_path_evaluation_table = os.path.join(files_folder_path, 'evaluation_table')
     folder_path_only_nav = os.path.join(files_folder_path, 'only_nav')
@@ -341,7 +369,7 @@ if __name__ == "__main__":
                         'folder_path_only_nav': folder_path_only_nav,
                         'folder_path_cash': folder_path_cash}
     fund_nav_dic, cash_df = read_nav_files(folder_path_dict)
-    file_path = os.path.join(files_folder_path, '净值计算模板+-+模测版 reset by doudou.xls')
-    ret_data_list = update_nav_file(file_path, fund_nav_dic, cash_df)
+    file_path = os.path.join(files_folder_path, '净值计算模板+-+模测版 reset by doudou_请检查确保意思理解正确.xls')
+    ret_data_list = update_nav_file(file_path, fund_nav_dic, cash_df, ignore_sheet_set=ignore_sheet_set)
     save_path = os.path.join(files_folder_path, 'nav_summary.xls')
     save_nav_files(ret_data_list, save_path)
