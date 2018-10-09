@@ -53,11 +53,11 @@ def read_nav_files(folder_path_dict: dict):
         else:
             logger.debug('file_path: %s', file_path)
             data_df = pd.read_excel(file_path, skiprows=0, header=0)
-            date = try_2_date(data_df.iloc[0][2])
-            name, nav = data_df.iloc[0][0], float(data_df.iloc[0][3])
-        # 把新萌的净值加上去
-        fund_dictionay.setdefault(name, []).append([date, nav])
-
+            for i in range(len(data_df)):
+                date = try_2_date(data_df.iloc[i][2])
+                name, nav = data_df.iloc[i][0], float(data_df.iloc[i][3])
+                # 把新萌的净值加上去
+                fund_dictionay.setdefault(name, []).append([date, nav])
     folder_path_cash = folder_path_dict.get('folder_path_cash')
     file_names = os.listdir(folder_path_cash)
     cash_df = None
@@ -74,15 +74,43 @@ def read_nav_files(folder_path_dict: dict):
             cash_df['date'] = date
             cash_df.columns = ['基金名称', '现金', '日期']
             cash_df.index = range(cash_df.shape[0])
+            cash = cash_df.set_index('基金名称')
+            cash_0 = cash.drop(['鑫隆稳进FOF-募集户', '鑫隆稳进FOF-托管户', '定增一期 募集户', '定增一期 托管户'])
+            cash_1 = pd.DataFrame({'基金名称': ['鑫隆稳进FOF', '复华财通定增投资基金'],
+                                   '现金': [cash.loc['鑫隆稳进FOF-募集户']['现金'] + cash.loc['鑫隆稳进FOF-托管户']['现金'],
+                                          cash.loc['定增一期 募集户']['现金'] + cash.loc['定增一期 托管户']['现金']]
+                                      , '日期': [cash.loc['鑫隆稳进FOF-募集户']['日期'], cash.loc['定增一期 募集户']['日期']]})
+            cash = pd.concat([cash_0, cash_1.set_index('基金名称')])
+            new_index = ['复华结构化保本混合型基金', '复华结构化保本混合型基金二期', '复华结构化保本混合型基金三期', '复华结构化保本混合型基金四期',
+                         '恒银东兴', '长信', '恒银东升', '鑫隆FOF一期','复华财通定增投资基金三期','复华多策略结构化定增基金','鑫隆稳进FOF','复华财通定增投资基金' ]
+            cash.index=new_index
+            cash_dict = cash.to_dict('index')
 
-    return fund_dictionay, cash_df
+            # 鑫隆稳进FOF=float(cash_df[cash_df['基金名称'] == '鑫隆稳进FOF-募集户']['现金']) + \
+            # float(cash_df[cash_df['基金名称'] == '鑫隆稳进FOF-托管户']['现金'])
+            # list([鑫隆稳进FOF,])
+            # 定增一期 = float(cash_df[cash_df['基金名称'] == '定增一期 募集户']['现金']) + \
+            #           float(cash_df[cash_df['基金名称'] == '定增一期 托管户']['现金'])
+            #
+            # #删除掉多余的行
+            # y1=cash_df[cash_df['基金名称'].astype(str).str.contains('募集户')]
+            # ret=list(set(list(y1['基金名称']))^set(list(cash_df['基金名称'])))
+            # cash_df=cash_df[cash_df['基金名称'].isin(ret)]
+            # y1 = cash_df[cash_df['基金名称'].astype(str).str.contains( '托管户')]
+            # ret = list(set(list(y1['基金名称'])) ^ set(list(cash_df['基金名称'])))
+            # cash_df = cash_df[cash_df['基金名称'].isin(ret)]
+
+    return fund_dictionay, cash_dict
 
 
 if __name__ == "__main__":
-    folder_path = r'd:\WSPych\RefUtils\src\fh_tools\nav_tools\product_nav'
-    folder_path_evaluation_table = r'D:\WSPycharm\fund_evaluation\evaluation_table'
-    folder_path_only_nav = r'D:\WSPycharm\fund_evaluation\only_nav'
-    folder_path_cash = r'D:\WSPycharm\fund_evaluation\cash'
+    files_folder_path = os.path.join(os.path.abspath(os.path.curdir), 'files')
+    folder_path_evaluation_table = os.path.join(files_folder_path, 'evaluation_table')
+    folder_path_only_nav = os.path.join(files_folder_path, 'only_nav')
+    folder_path_cash = os.path.join(files_folder_path, 'cash')
     folder_path_dict = {'folder_path_evaluation_table': folder_path_evaluation_table,
-                        'folder_path_only_nav': folder_path_only_nav, 'folder_path_cash': folder_path_cash}
-    fund_nav_dic, cash_df = read_nav_files(folder_path_dict)
+                        'folder_path_only_nav': folder_path_only_nav,
+                        'folder_path_cash': folder_path_cash}
+    fund_dictionay, cash_dict = read_nav_files(folder_path_dict)
+    print(fund_dictionay)
+    print(cash_dict)
