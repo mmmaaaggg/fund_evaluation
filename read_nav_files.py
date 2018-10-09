@@ -57,7 +57,7 @@ def read_nav_files(folder_path_dict: dict):
             data_df = pd.read_excel(file_path, skiprows=0, header=0)
             for i in range(len(data_df)):
                 date = try_2_date(data_df.iloc[i][2])
-                name, nav = data_df.iloc[i][0], float(data_df.iloc[i][3])
+                name, nav = data_df.iloc[i][0], float(data_df.iloc[i]['单位净值'])
                 # 把新萌的净值加上去
                 fund_dictionay.setdefault(name, []).append([date, nav])
     # 创富51号
@@ -81,7 +81,7 @@ def read_nav_files(folder_path_dict: dict):
     # 读取财务给的现金表
     folder_path_cash = folder_path_dict.get('folder_path_cash')
     file_names = os.listdir(folder_path_cash)
-    cash_df = None
+    cash_dict = None
     for file_name in file_names:
         file_path = os.path.join(folder_path_cash, file_name)
         file_name_net, file_extension = os.path.splitext(file_path)
