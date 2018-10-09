@@ -11,7 +11,9 @@ import os
 from fh_utils import try_2_date, date_2_str
 import logging
 import pandas as pd
+from WindPy import *
 
+w.start()
 logger = logging.getLogger()
 
 
@@ -58,6 +60,25 @@ def read_nav_files(folder_path_dict: dict):
                 name, nav = data_df.iloc[i][0], float(data_df.iloc[i][3])
                 # 把新萌的净值加上去
                 fund_dictionay.setdefault(name, []).append([date, nav])
+    # 创富51号
+    raw = w.wsd("J167518.OF", "nav,NAV_date", "2018-08-09", datetime.today())
+    cf_df = pd.DataFrame(raw.Data, index=raw.Fields, columns=raw.Times).T
+    cf_df['基金名称'] = '恒泰创富51号'
+    cf_df = cf_df.set_index('基金名称').drop_duplicates()
+    # test={}
+    for i in range(len(cf_df)):
+        # test.setdefault(cf_df.index[0], []).append([cf_df.NAV_DATE.iloc[i].date(), cf_df.NAV.iloc[i]])
+        fund_dictionay.setdefault(cf_df.index[0], []).append([cf_df.NAV_DATE.iloc[i].date(), cf_df.NAV.iloc[i]])
+
+    # 财通升级
+    raw = w.wsd("501015.OF", "nav,NAV_date", "2018-08-09", datetime.today())
+    ctsj_df = pd.DataFrame(raw.Data, index=raw.Fields, columns=raw.Times).T
+    ctsj_df['基金名称'] = '财通升级'
+    ctsj_df = ctsj_df.set_index('基金名称').drop_duplicates()
+    for i in range(len(ctsj_df)):
+        fund_dictionay.setdefault(ctsj_df.index[0], []).append([ctsj_df.NAV_DATE.iloc[i].date(), ctsj_df.NAV.iloc[i]])
+
+    # 读取财务给的现金表
     folder_path_cash = folder_path_dict.get('folder_path_cash')
     file_names = os.listdir(folder_path_cash)
     cash_df = None
@@ -80,10 +101,10 @@ def read_nav_files(folder_path_dict: dict):
                                    '现金': [cash.loc['鑫隆稳进FOF-募集户']['现金'] + cash.loc['鑫隆稳进FOF-托管户']['现金'],
                                           cash.loc['定增一期 募集户']['现金'] + cash.loc['定增一期 托管户']['现金']]
                                       , '日期': [cash.loc['鑫隆稳进FOF-募集户']['日期'], cash.loc['定增一期 募集户']['日期']]})
-            cash = pd.concat([cash_0, cash_1.set_index('基金名称')])
+            cash = pd.concat([cash_0, cash_1.set_index('基金名称')]).fillna(0)
             new_index = ['复华结构化保本混合型基金', '复华结构化保本混合型基金二期', '复华结构化保本混合型基金三期', '复华结构化保本混合型基金四期',
-                         '恒银东兴', '长信', '恒银东升', '鑫隆FOF一期','复华财通定增投资基金三期','复华多策略结构化定增基金','鑫隆稳进FOF','复华财通定增投资基金' ]
-            cash.index=new_index
+                         '恒银东兴', '长信', '恒银东升', '鑫隆FOF一期', '复华财通定增投资基金三期', '复华多策略结构化定增基金', '鑫隆稳进FOF', '复华财通定增投资基金']
+            cash.index = new_index
             cash_dict = cash.to_dict('index')
 
             # 鑫隆稳进FOF=float(cash_df[cash_df['基金名称'] == '鑫隆稳进FOF-募集户']['现金']) + \
@@ -104,13 +125,10 @@ def read_nav_files(folder_path_dict: dict):
 
 
 if __name__ == "__main__":
-    files_folder_path = os.path.join(os.path.abspath(os.path.curdir), 'files')
-    folder_path_evaluation_table = os.path.join(files_folder_path, 'evaluation_table')
-    folder_path_only_nav = os.path.join(files_folder_path, 'only_nav')
-    folder_path_cash = os.path.join(files_folder_path, 'cash')
+    folder_path = r'd:\WSPych\RefUtils\src\fh_tools\nav_tools\product_nav'
+    folder_path_evaluation_table = r'D:\WSPycharm\fund_evaluation\evaluation_table'
+    folder_path_only_nav = r'D:\WSPycharm\fund_evaluation\only_nav'
+    folder_path_cash = r'D:\WSPycharm\fund_evaluation\cash'
     folder_path_dict = {'folder_path_evaluation_table': folder_path_evaluation_table,
-                        'folder_path_only_nav': folder_path_only_nav,
-                        'folder_path_cash': folder_path_cash}
-    fund_dictionay, cash_dict = read_nav_files(folder_path_dict)
-    print(fund_dictionay)
-    print(cash_dict)
+                        'folder_path_only_nav': folder_path_only_nav, 'folder_path_cash': folder_path_cash}
+    fund_nav_dic, cash_df = read_nav_files(folder_path_dict)
