@@ -12,9 +12,12 @@ from fh_utils import try_2_date, date_2_str
 import logging
 import pandas as pd
 from WindPy import *
+from datetime import datetime
+import re
 
 w.start()
 logger = logging.getLogger()
+PATTERN_B = re.compile(r'^基金单位净值：\d{6}B级$')
 
 
 def read_nav_files(folder_path_dict: dict):
@@ -33,10 +36,11 @@ def read_nav_files(folder_path_dict: dict):
             date = try_2_date(data_df.iloc[0][0])  # data_df.iloc[0][0][-10:]
             # 获取净值
             data_df1 = pd.read_excel(file_path, skiprows=3, header=0)
-
             # data_df1['科目名称'][data_df1['科目代码'].apply(lambda x: x.find('基金单位净值') != -1 if isinstance(x, str) else False)]
             if '财通' in data_df.columns[0]:
-                cum_nav = data_df1['科目名称'][data_df1['科目代码'] == '基金单位净值：']
+                # cum_nav = data_df1['科目名称'][data_df1['科目代码'] == '基金单位净值：']
+                cum_nav = data_df1['科目名称'][
+                    data_df1['科目代码'].apply(lambda x: PATTERN_B.search(x) is not None if isinstance(x, str) else False)]
                 name, nav = data_df.columns[0][13:-6], float(cum_nav.values[0])
             elif '万霁' in data_df.columns[0]:
                 cum_nav = data_df1['科目名称'][data_df1['科目代码'] == '基金单位净值:']
@@ -77,6 +81,22 @@ def read_nav_files(folder_path_dict: dict):
     ctsj_df = ctsj_df.set_index('基金名称').drop_duplicates()
     for i in range(len(ctsj_df)):
         fund_dictionay.setdefault(ctsj_df.index[0], []).append([ctsj_df.NAV_DATE.iloc[i].date(), ctsj_df.NAV.iloc[i]])
+
+    # 亿利洁能
+    raw = w.wsd("600277.SH", "CLOSE", "2018-08-09", datetime.today())
+    yljn_df = pd.DataFrame(raw.Data, index=raw.Fields, columns=raw.Times).T
+    num, rate, price_0, class_b = 20157129, 0.07, 6.93, 129000000
+    yljn_nav0 = []
+    for i in range(len(yljn_df.index)):
+        principal, days = (num * price_0), try_2_date(yljn_df.index[i]) - datetime(2017, 1, 18).date()
+        principal_interest = principal * rate * days.days / 365 + principal
+        compensation = principal_interest - yljn_df.CLOSE[i] * num
+        nav = compensation / class_b
+        yljn_nav0.append(nav)
+    yljn_nav = pd.DataFrame(yljn_nav0, index=yljn_df.index, columns=['NAV'])
+    yljn_nav['基金名称'] = '财通基金-复华定增6号资产管理计划'
+    for i in range(len(yljn_nav)):
+        fund_dictionay.setdefault(yljn_nav['基金名称'][0], []).append([yljn_nav.index[i], yljn_nav.NAV[i]])
 
     # 读取财务给的现金表
     folder_path_cash = folder_path_dict.get('folder_path_cash')

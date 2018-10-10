@@ -103,6 +103,10 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
                         except:
                             logger.warning('[%s] -> %d:%s end_date 字段转换失败 %s 无法转换成日期',
                                            sheet_name, row_num, name, str(end_date))
+                    if sheet.cell_value(row_num, 8) == "基准份额":
+                        fee_dic[name]['volume_base'] = float(sheet.cell_value(row_num, 9))
+                    if sheet.cell_value(row_num, 8) == "固定费用":
+                        fee_dic[name]['fix_fee'] = float(sheet.cell_value(row_num, 9))
 
                 elif type_name == '子产品':
                     # 借款，子基金
@@ -175,9 +179,6 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
                             idx, (_, nav) = max_id_val(date_nav_list,
                                                        lambda x: x[0] if x[0] <= nav_date else MIN_DATE)
                             date_latest_new = date_nav_list[idx][0]
-                            if date_latest_new != nav_date:
-                                logger.warning("[%s] %s 最新净值日期 %s 与 %s 不符，可能存在计算偏差",
-                                               sheet_name, sub_product_name, date_latest_new, nav_date)
                         else:
                             logger.warning("[%s] %s 净值未查到，默认净值为 1", sheet_name,
                                            base_prod_name if base_prod_name is not None and base_prod_name != "" else
@@ -186,8 +187,8 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
 
                         # 净值日期匹配检查
                         if date_latest_new is not None and date_latest_new != nav_date:
-                            logger.warning("[%s] %s 最新净值日期 %s 与 %s 不符，可能存在计算偏差",
-                                           sheet_name, sub_product_name, date_latest_new, nav_date)
+                            logger.warning("[%s] %s 净值 %.4f 最新净值日期 %s 与 %s 不符，可能存在计算偏差",
+                                           sheet_name, sub_product_name, nav, date_latest_new, nav_date)
 
                         # 净值
                         data_df_new.iloc[last_row, col_num] = nav
@@ -246,11 +247,18 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
             # 计算费用
             tot_fee = 0
             for key, info_dic in fee_dic.items():
-                end_date = info_dic.setdefault('end_date', nav_date)
-                if key not in data_df_new:
-                    logger.warning('[%s] %s -> %s 不在费用列表中，可能该笔费用已经结束，将不进行计算 %s', sheet_name, fund_name, key, info_dic)
-                    continue
-                manage_fee = - (end_date - info_dic['base_date']).days / 365 * fund_volume * info_dic['rate']
+                if 'fix_fee' in info_dic:
+                    manage_fee = info_dic['fix_fee']
+                else:
+                    end_date = info_dic.setdefault('end_date', nav_date)
+                    if end_date > nav_date:
+                        end_date = end_date
+                    if key not in data_df_new:
+                        logger.warning('[%s] %s -> %s 不在费用列表中，可能该笔费用已经结束，将不进行计算 %s', sheet_name, fund_name, key, info_dic)
+                        continue
+                    volume_base = info_dic['volume_base'] if 'volume_base' in info_dic else fund_volume
+                    manage_fee = - (end_date - info_dic['base_date']).days / 365 * volume_base * info_dic['rate']
+
                 data_df_new[key].iloc[last_row] = manage_fee
                 tot_fee += manage_fee
 
@@ -287,8 +295,8 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
                     sheet.write(row_num + last_row + 1, col_num, value, num_style)
 
             # 保存独立 DataFrame 文件
-            file_path_df = file_path_name + '_df_' + date_2_str(nav_date) + file_extension
-            data_df_new.to_excel(file_path_df)
+            # file_path_df = file_path_name + '_df_' + date_2_str(nav_date) + file_extension
+            # data_df_new.to_excel(file_path_df, sheet_name=sheet_name)
             # 保存返回信息
             ret_data_dic['nav'] = nav
             nav_last_4_parent_product = data_df_new['净值（费后）'].iloc[last_row - 1]
@@ -408,8 +416,8 @@ if __name__ == "__main__":
                         'folder_path_only_nav': folder_path_only_nav,
                         'folder_path_cash': folder_path_cash}
     fund_nav_dic, cash_dict = read_nav_files(folder_path_dict)
-    file_path = os.path.join(files_folder_path, '净值计算模板+-+模测版 reset by doudou_请检查确保意思理解正确.xls')
-    ret_data_list = update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date='2018-8-31',
+    file_path = os.path.join(files_folder_path, '净值 2018-10-10 展弘分红重新计算份额.xls')
+    ret_data_list = update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date='2018-9-30',
                                     ignore_sheet_set=ignore_sheet_set)
     save_path = os.path.join(files_folder_path, 'nav_summary.xls')
     save_nav_files(ret_data_list, save_path)
