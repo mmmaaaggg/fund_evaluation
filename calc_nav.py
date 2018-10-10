@@ -44,6 +44,7 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
 
     workbook = xlrd.open_workbook(file_path)
     sheet_names = workbook.sheet_names()
+    available_sheet_name = set()
 
     # 在源文件基础上增量更新
     file_path_new = file_path_name + '_' + date_2_str(nav_date) + file_extension
@@ -64,6 +65,7 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
                 logger.warning("[%s] 跳过")
                 continue
             logger.info('sheet：[%s]', sheet_name)
+            available_sheet_name.add(sheet_name)
             # 取得名称，日期，份额数据
             fund_name = sheet.cell_value(0, 1)
             setup_date = xlrd.xldate_as_datetime(sheet.cell_value(1, 1), 0).date()
@@ -271,11 +273,11 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
                         sheet_name, fund_name, tot_val / fund_volume, (tot_val + tot_fee) / fund_volume)
 
             # 保存文件
-            sheet = workbook_new.get_sheet(sheet_num)
+            sheet_wt = workbook_new.get_sheet(sheet_num)
             # nav_date
             date_style = xlwt.XFStyle()
             date_style.num_format_str = 'YYYY/M/D'
-            sheet.write(row_num + last_row + 1, 0, nav_date, date_style)
+            sheet_wt.write(row_num + last_row + 1, 0, nav_date, date_style)
             # 各个产品的【净值	份额	市值】
             # 银行现金	管理费1	管理费2	托管费	总市值（费前）	净值（费前）	总市值（费后）	净值（费后）
             # 净值类的数字保留小数点后4位，其他的小数点后2位
@@ -285,14 +287,48 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
             num_style.num_format_str = '0.00;[Red]-0.00'
             nav_style = xlwt.XFStyle()
             nav_style.num_format_str = '0.0000;[Red]-0.0000'
+
+            # 更新头部信息表的日期
+            row_num_tmp, col_num = 1, 1
+            sheet_wt.write(row_num_tmp, col_num, sheet.cell_value(row_num_tmp, col_num), date_style)
+            for row_num_tmp in range(3, row_num):
+                for col_num in range(4, 8, 2):
+                    value = sheet.cell_value(row_num_tmp, col_num)
+                    if value is None or (not isinstance(value, str)) or value == "":
+                        continue
+                    if value.find('日期') == -1 and len(value) <= 6:
+                        continue
+                    try:
+                        sheet_wt.write(row_num_tmp, col_num + 1, sheet.cell_value(row_num_tmp, col_num + 1), date_style)
+                    except:
+                        pass
+
+            # 设置历史数据格式
+            for row_num_tmp in range(row_num + 1, row_num + last_row + 1):
+                for col_num in range(0, col_len):
+                    try:
+                        value = sheet.cell_value(row_num_tmp, col_num)
+                        if value is None:
+                            continue
+                        if col_num == 0:
+                            sheet_wt.write(row_num_tmp, col_num, value, date_style)
+                        elif col_name_list[col_num].find('净值') >= 0:
+                            sheet_wt.write(row_num_tmp, col_num, value, nav_style)
+                        else:
+                            sheet_wt.write(row_num_tmp, col_num, value, num_style)
+                    except:
+                        break
+
+            # 设置最新一行数据及格式
             for col_num in range(1, col_len):
                 value = data_df_new.iloc[last_row, col_num]
                 if value is None:
                     continue
                 if col_name_list[col_num].find('净值') >= 0:
-                    sheet.write(row_num + last_row + 1, col_num, value, nav_style)
+                    sheet_wt.write(row_num + last_row + 1, col_num, value, nav_style)
                 else:
-                    sheet.write(row_num + last_row + 1, col_num, value, num_style)
+                    sheet_wt.write(row_num + last_row + 1, col_num, value, num_style)
+
 
             # 保存独立 DataFrame 文件
             # file_path_df = file_path_name + '_df_' + date_2_str(nav_date) + file_extension
@@ -307,9 +343,16 @@ def update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date=date.today(), i
         except:
             logger.exception('[%s]净值计算异常', sheet_name)
 
+    # 删除无用 sheet
+    all_sheet = workbook_new._Workbook__worksheets
+    for sheet_wt in [sheet_wt for sheet_wt in all_sheet if sheet_wt.name not in available_sheet_name]:
+        all_sheet.remove(sheet_wt)
+
+    workbook_new._Workbook__worksheets = all_sheet
+    # 保持 sheet
     workbook_new.save(file_path_new)
 
-    return ret_data_list
+    return ret_data_list, file_path_new
 
 
 def save_nav_files(data_list, save_path):
@@ -415,9 +458,11 @@ if __name__ == "__main__":
     folder_path_dict = {'folder_path_evaluation_table': folder_path_evaluation_table,
                         'folder_path_only_nav': folder_path_only_nav,
                         'folder_path_cash': folder_path_cash}
+    # fund_nav_dic, cash_dict = None, None
     fund_nav_dic, cash_dict = read_nav_files(folder_path_dict)
     file_path = os.path.join(files_folder_path, '净值 2018-10-10 展弘分红重新计算份额.xls')
-    ret_data_list = update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date='2018-9-30',
+    ret_data_list, file_path_new = update_nav_file(file_path, fund_nav_dic, cash_dict, nav_date='2018-9-30',
                                     ignore_sheet_set=ignore_sheet_set)
     save_path = os.path.join(files_folder_path, 'nav_summary.xls')
     save_nav_files(ret_data_list, save_path)
+    os.startfile(file_path_new)
